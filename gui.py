@@ -7,6 +7,10 @@ try:
     from PIL import Image, ImageTk
 except ImportError:
     ImageTk = None
+try:
+    import speech_recognition as sr
+except ImportError:
+    sr = None
 import binascii
 from queue import Queue
 import uuid
@@ -18,7 +22,7 @@ def _(text):
 # Constants
 MAX_FILE_SIZE = 1000 * 1024  # 1000 KB
 
-# Placeholder converter functions (minimal implementation)
+# Existing converter functions (unchanged from your original code)
 def convert_text_to_binary(text, encoding='utf-8', encrypt=False, key=""):
     try:
         binary = ' '.join(format(ord(c), '08b') for c in text)
@@ -263,7 +267,7 @@ class ConverterApp:
         self.status_bar.grid(row=2, column=0, sticky="ew")
         self.set_status("✅ Ready")
 
-        for btn in [self.convert_btn, self.copy_btn, self.save_btn, self.stats_btn, self.exit_btn, self.browse_btn, self.clear_history_btn, self.apply_custom_btn, self.clear_all_btn]:
+        for btn in [self.convert_btn, self.copy_btn, self.save_btn, self.stats_btn, self.exit_btn, self.browse_btn, self.clear_history_btn, self.apply_custom_btn, self.clear_all_btn, self.voice_btn]:
             btn.bind("<Enter>", lambda e, b=btn: b.configure(style="Hover.TButton"))
             btn.bind("<Leave>", lambda e, b=btn: b.configure(style="TButton"))
             btn.bind("<Button-1>", lambda e, b=btn: self.animate_button_press(b))
@@ -278,6 +282,7 @@ class ConverterApp:
         self.root.bind("<Control-a>", lambda e: self.apply_customization())
         self.root.bind("<Control-h>", lambda e: self.set_theme("HighContrast"))
         self.root.bind("<Control-l>", lambda e: self.clear_all())
+        self.root.bind("<Control-v>", lambda e: self.get_voice_input())
 
     def _on_mousewheel(self, event):
         delta = 0
@@ -396,7 +401,7 @@ class ConverterApp:
 
         self.btns_frame = ttk.Frame(self.frame)
         self.btns_frame.grid(row=9, column=0, columnspan=4, pady=20, sticky="nsew")
-        self.btns_frame.columnconfigure([0, 1, 2, 3, 4], weight=1)
+        self.btns_frame.columnconfigure([0, 1, 2, 3, 4, 5], weight=1)  # Adjusted for voice button
         self.btns_frame.rowconfigure(0, weight=1)
 
         self.convert_btn = ttk.Button(self.btns_frame, text="Convert", command=self.convert)
@@ -424,8 +429,43 @@ class ConverterApp:
         self.clear_all_btn.configure(takefocus=True)
         Tooltip(self.clear_all_btn, "Clear input and output (Ctrl+L)")
 
+        self.voice_btn = ttk.Button(self.btns_frame, text="Voice Input", command=self.get_voice_input)
+        self.voice_btn.grid(row=0, column=5, padx=5, sticky='ew')
+        self.voice_btn.configure(takefocus=True)
+        Tooltip(self.voice_btn, "Capture text via voice input (Ctrl+V)")
+
         self.update_upload_layout(None)
 
+    def get_voice_input(self):
+        def process_voice():
+            if not sr:
+                self.root.after(0, lambda: messagebox.showerror("Error", "Voice input requires speech_recognition library."))
+                self.root.after(0, lambda: self.set_status("❌ Voice input not available: speech_recognition not installed.", error=True))
+                return
+            recognizer = sr.Recognizer()
+            with sr.Microphone() as source:
+                self.root.after(0, lambda: self.set_status("🎤 Listening for voice input..."))
+                recognizer.adjust_for_ambient_noise(source)
+                try:
+                    audio = recognizer.listen(source, timeout=5)
+                    text = recognizer.recognize_google(audio)
+                    self.root.after(0, lambda: self.input_text.delete("1.0", tk.END))
+                    self.root.after(0, lambda: self.input_text.insert(tk.END, text))
+                    self.root.after(0, lambda: self.set_status(f"✅ Recognized voice input: {text}", timeout=3000))
+                except sr.WaitTimeoutError:
+                    self.root.after(0, lambda: messagebox.showwarning("Warning", "No speech detected within 5 seconds."))
+                    self.root.after(0, lambda: self.set_status("❌ No speech detected.", error=True))
+                except sr.UnknownValueError:
+                    self.root.after(0, lambda: messagebox.showwarning("Warning", "Could not understand the audio."))
+                    self.root.after(0, lambda: self.set_status("❌ Could not understand audio.", error=True))
+                except Exception as e:
+                    self.root.after(0, lambda: messagebox.showerror("Error", f"Voice recognition failed: {e}"))
+                    self.root.after(0, lambda: self.set_status(f"❌ Voice recognition failed: {e}", error=True))
+            self.root.after(0, lambda: self.root.config(cursor=""))
+        self.root.config(cursor="wait")
+        Thread(target=process_voice, daemon=True).start()
+
+    # Remaining methods (unchanged from original code)
     def clear_all(self):
         self.input_text.configure(state="normal")
         self.input_text.delete("1.0", tk.END)
